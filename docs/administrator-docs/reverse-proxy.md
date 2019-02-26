@@ -2,9 +2,21 @@
 
 It's possible to run Jellyfin behind another server acting as a reverse proxy.  With a reverse proxy setup, this alternative server handles all network traffic and proxies it back to Jellyfin.  This has the benefit of having nice DNS names and not having to remember port numbers, as well as easier integration with SSL certificates.
 
-Three popular options for reverse proxy systems are [Apache](https://httpd.apache.org/), [Haproxy](https://www.haproxy.com/), and [Nginx](https://www.nginx.com/).
+A reverse proxy is a server, usually a web server or dedicated application, that handles network traffic coming in from clients and proxies it back to Jellyfin, instead of the user connecting directly. This has a number of benefits, such as:
+
+* Nicer ports - you can use port 80 or 443 for your Jellyfin instance, without reconfiguring Jellyfin itself or running it as an administrative user.
+* Nicer DNS names - you can use whatever domain(s) you want and have the reverse proxy listen on that domain specifically.
+* Request queueing - Jellyfin's built-in HTTP server is generally OK, but it can sometimes be useful for an administrator to queue large numbers of incoming requests.
+* Proper SSL support - Jellyfin's built-in HTTP server supports HTTPS operation, but is generally cumbersome especially with services such as Let's Encrypt, which is simplified significantly by using a reverse proxy.
+* Chromecast support - Google has deprecated and removed non-SSL HTTP casting in recent versions, so a reverse proxy providing SSL is required in those situations.
+
+A reverse proxy does have some limitations however. Mainly, the URL path must always be `/`, or Jellyfin will not work properly. You should always run Jellyfin on a dedicated subdomain or dedicated port.
+
+The three most popular options for reverse proxies are [Apache](https://httpd.apache.org/), [NGiNX](https://www.nginx.com/), and [HAProxy](https://www.haproxy.com/).
 
 ## Apache
+
+Apache is a web server that features reverse proxy support using its `ProxyPass` directive. Apache is one of the most popular HTTP servers, and is very well-documented. The following is a very simple configuration to provide proxying and SSL support, including handling the WebSockets URL.
 
 ```
 <VirtualHost *:80>
@@ -47,36 +59,9 @@ $ sudo a2enmod proxy proxy_http
 $ sudo a2enmod ssl
 ```
 
-## Haproxy
+## NGiNX
 
-This basic HAProxy configuration assumes your Jellyfin instance runs on localhost, and provides a Layer7 health check every 5 seconds.
-
-```
-frontend jellyfin_proxy
-    bind *:80
-# Note that haproxy requires you to concatenate the certificate and key into a single file
-## Note that if you're using haproxy 1.8+, you can enable http2 by swapping these lines
-##   bind *:443 ssl crt /etc/letsencrypt/live/jellyfin.example.com/complete.pem alpn h2,http/1.1
-    bind *:443 ssl crt /etc/letsencrypt/live/jellyfin.example.com/complete.pem
-    redirect scheme https if !{ ssl_fc }
-
-    acl jellyfin_server hdr(host) -i jellyfin.example.com
-    use_backend jellyfin if jellyfin_server
-
-backend jellyfin
-    http-request set-header X-Forwarded-Port %[dst_port]
-    http-request add-header X-Forwarded-Proto https if { ssl_fc }
-    option httpchk GET /web/login.html HTTP/1.1\r\nHost:\ jellyfin
-    server jellyfin 127.0.0.1:8096 check inter 5000
-```
-
-You can use the tools `hatop` and `haproxyctl` (installed separately) to view the status of your HAProxy instance, for instance:
-
-```
-sudo haproxyctl show health
-```
-
-## Nginx
+NGiNX is another popular web server. It is far more lightweight than Apache for the same number of connections, and its proxy facilities (using `proxy_pass`) are more robust. The following is a very simple configuration to provide proxying and SSL support. Note that `http2` support was only added in NGiNX 1.9.5; older versions should remove that reference.
 
 ```
 server {
@@ -107,3 +92,35 @@ server {
     }
 }
 ```
+
+## HAProxy
+
+HAProxy is specifically a high-availability TCP proxy, including advanced load balancing and health checking functionality. In this respect it is different than both Apache and NGiNX and is far more flexible. HAProxy should be used mostly for advanced configurations, as either Apache or NGiNX is far simpler to administrate. The following is a very simple configuration to provide proxying and SSL support, along with a Layer7 health check to verify that the Jellyfin instance is running.
+
+```
+frontend jellyfin_proxy
+    bind *:80
+# Note that haproxy requires you to concatenate the certificate and key into a single file
+## Note that if you're using haproxy 1.8+, you can enable http2 by swapping these lines
+##   bind *:443 ssl crt /etc/letsencrypt/live/jellyfin.example.com/complete.pem alpn h2,http/1.1
+    bind *:443 ssl crt /etc/letsencrypt/live/jellyfin.example.com/complete.pem
+    redirect scheme https if !{ ssl_fc }
+
+    acl jellyfin_server hdr(host) -i jellyfin.example.com
+    use_backend jellyfin if jellyfin_server
+
+backend jellyfin
+    http-request set-header X-Forwarded-Port %[dst_port]
+    http-request add-header X-Forwarded-Proto https if { ssl_fc }
+    option httpchk GET /web/login.html HTTP/1.1\r\nHost:\ jellyfin
+    server jellyfin 127.0.0.1:8096 check inter 5000
+```
+
+You can use the tools `hatop` and `haproxyctl` (installed separately) to view the status of your HAProxy instance, for instance:
+
+```
+sudo haproxyctl show health
+sudo hatop
+[view GUI]
+```
+
