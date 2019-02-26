@@ -49,6 +49,8 @@ $ sudo a2enmod ssl
 
 ## Haproxy
 
+This basic HAProxy configuration assumes your Jellyfin instance runs on localhost, and provides a Layer7 health check every 5 seconds.
+
 ```
 frontend jellyfin_proxy
     bind *:80
@@ -64,7 +66,14 @@ frontend jellyfin_proxy
 backend jellyfin
     http-request set-header X-Forwarded-Port %[dst_port]
     http-request add-header X-Forwarded-Proto https if { ssl_fc }
-    server jellyfin 127.0.0.1:8096
+    option httpchk GET /web/login.html HTTP/1.1\r\nHost:\ jellyfin
+    server jellyfin 127.0.0.1:8096 check inter 5000
+```
+
+You can use the tools `hatop` and `haproxyctl` (installed separately) to view the status of your HAProxy instance, for instance:
+
+```
+sudo haproxyctl show health
 ```
 
 ## Nginx
